@@ -44,8 +44,11 @@ namespace observe.ConfigurationBuilder
             {
                 try
                 {
-                    FileModel? model = JsonSerializer.Deserialize<FileModel>(file.OpenText().ReadToEnd());
-                    models.Add(confName, (model, file));
+                    using (var reader = file.OpenText())
+                    {
+                        FileModel? model = JsonSerializer.Deserialize<FileModel>(reader.ReadToEnd());
+                        models.Add(confName, (model, file));
+                    }
                 }
                 catch (JsonException)
                 {
