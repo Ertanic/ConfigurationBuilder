@@ -7,6 +7,7 @@ namespace observe.ConfigurationBuilder
     {
         Dictionary<string, (object?, FileInfo)> models = new();
         object? defaultModel;
+        bool areExceptionsDisabled = false;
 
         public ConfigurationBuilder AddJsonFile<FileModel>(string filePath, string? name = null) where FileModel : IObserverFields
         {
@@ -17,10 +18,12 @@ namespace observe.ConfigurationBuilder
 
             } catch (UnableAddConfigurationFile ex)
             {
-                throw ex;
+                if (!areExceptionsDisabled)
+                    throw ex;
             } catch
             {
-                throw new UnableAddConfigurationFile($"Unable to add {filePath} file, check if the file path is written correctly");
+                if (!areExceptionsDisabled)
+                    throw new UnableAddConfigurationFile($"Unable to add {filePath} file, check if the file path is written correctly");
             }
 
             return this;
@@ -52,7 +55,8 @@ namespace observe.ConfigurationBuilder
                 }
                 catch (JsonException)
                 {
-                    throw new UnableAddConfigurationFile($"Unable to add {file.Name} file to ConfigurationBuilder, because json file has invalid format");
+                    if (!areExceptionsDisabled)
+                        throw new UnableAddConfigurationFile($"Unable to add {file.Name} file to ConfigurationBuilder, because json file has invalid format");
                 }
             }
 
@@ -66,12 +70,19 @@ namespace observe.ConfigurationBuilder
                 this.defaultModel = models[configurationName].Item1;
             } catch
             {
-                throw new UnableSetDefaultConfigurationException($"Unable to set default configuration with {configurationName} name");
+                if (!areExceptionsDisabled)
+                    throw new UnableSetDefaultConfigurationException($"Unable to set default configuration with {configurationName} name");
             }
 
             return this;
         }
 
-        public ConfigurationList Build() => new ConfigurationList(models, defaultModel);
+        public ConfigurationBuilder DisableException()
+        {
+            areExceptionsDisabled = true;
+            return this;
+        }
+
+        public ConfigurationList Build() => new ConfigurationList(models, defaultModel, areExceptionsDisabled);
     }
 }

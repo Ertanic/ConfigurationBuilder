@@ -6,35 +6,40 @@ namespace observe.ConfigurationBuilder
     {
         Dictionary<string, (object? model, FileInfo file)> _models = new();
         object? _defaultModel;
+        bool _areExceptionsDisabled;
 
         public delegate void ConfigurationFileUpdateHandler(ConfigurationFileUpdateEventArgs args);
         public event ConfigurationFileUpdateHandler ConfigurationFileUpdate;
 
         List<FileSystemWatcher> _watchers = new();
-        public ConfigurationList(Dictionary<string, (object?, FileInfo)> models, object? defaultModel = null)
+        public ConfigurationList(Dictionary<string, (object?, FileInfo)> models, object? defaultModel, bool areExceptionsDisabled)
         {
+            //  Перебираем модели
             foreach (var key in models.Keys)
             {
+                //  Сохраняем модели в приватный массив
                 _models[key] = models[key];
-                Console.WriteLine(key);
-                Console.WriteLine(models[key]);
 
-                using (var fwatcher = _watchers.Find(w => w.Path == models[key].Item2.DirectoryName))
-                    if (fwatcher == null)
-                    {
-                        var watcher = new FileSystemWatcher(models[key].Item2.DirectoryName);
-                        watcher.EnableRaisingEvents = true;
-                        watcher.Changed += OnFileUpdate;
-                        watcher.Filters.Add(models[key].Item2.Name);
+                //  Ищим в массиве FileWatcher, смотрящий за директорией перебираемой модели
+                var fwatcher = _watchers.Find(w => w.Path == models[key].Item2.DirectoryName);
+                if (fwatcher == null)
+                {
+                    // Если FileWatcher не найден, создаём его и заносим в массив
+                    var watcher = new FileSystemWatcher(models[key].Item2.DirectoryName);
+                    watcher.EnableRaisingEvents = true;
+                    watcher.Changed += OnFileUpdate;
+                    watcher.Filters.Add(models[key].Item2.Name);
 
-                        this._watchers.Add(watcher);
-                    }
-                    else
-                    {
-                        fwatcher.Filters.Add(models[key].Item2.Name);
-                    }
+                    this._watchers.Add(watcher);
+                }
+                else
+                {
+                    //  Если найден, тогда добавляем ему в фильтры файл конфига из модели
+                    fwatcher.Filters.Add(models[key].Item2.Name);
+                }
             }
             this._defaultModel = defaultModel;
+            this._areExceptionsDisabled = areExceptionsDisabled;
         }
 
         void OnFileUpdate(object sender, FileSystemEventArgs e)
@@ -57,7 +62,7 @@ namespace observe.ConfigurationBuilder
                         {
                             //  Получение десерилизованной модели из изменённого файла
                             var deserializedModel = JsonSerializer.Deserialize(jsonReader.ReadToEnd(), modelType);
-                            Dictionary<string, object?> fieldsUpdate = new();
+                            List<(string,object?)> fieldsUpdate = new();
                             //  Перебор свойств модели
                             foreach (var prop in modelType.GetProperties())
                             {
@@ -70,19 +75,23 @@ namespace observe.ConfigurationBuilder
                                         //  Если значения разные - обновить значение у модели
                                         if (prop.GetValue(model.Value.model) != dProp.GetValue(deserializedModel))
                                         {
+                                            //  Обновляем в основной модели значение
                                             prop.SetValue(model.Value.model, dProp.GetValue(deserializedModel));
-                                            fieldsUpdate.Add(prop.Name, prop.GetValue(model.Value.model));
+                                            //  Собираем названия и значения обновлённых полей
+                                            fieldsUpdate.Add((prop.Name, prop.GetValue(model.Value.model)));
                                         }
                                     }
                                 }
                             }
-                            var args = new ConfigurationFileUpdateEventArgs(model.Value.file, model, fieldsUpdate);
+                            //  Вызываем обработчик события
+                            var args = new ConfigurationFileUpdateEventArgs(model.Value.file, model.Value.model, fieldsUpdate);
                             ConfigurationFileUpdate?.Invoke(args);
 
                         } catch
                         {
                             //  Если возникла ошибка чтения JSON-файла, выкинуть исключение
-                            throw new ErrorConfigurationFileUpdateException($"After editing {e.FullPath} file, it has become impossible to read");
+                            if (!_areExceptionsDisabled)
+                                throw new ErrorConfigurationFileUpdateException($"After editing {e.FullPath} file, it has become impossible to read");
                         }
 
                     }
